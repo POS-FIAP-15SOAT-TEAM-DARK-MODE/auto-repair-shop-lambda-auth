@@ -12,15 +12,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	_ "github.com/lib/pq"
+	"go.uber.org/zap"
 
 	"github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-lambda-auth/internal/authtoken"
+	"github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-lambda-auth/internal/logging"
 	"github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-lambda-auth/internal/repository"
 	"github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-lambda-auth/internal/secrets"
 )
@@ -40,6 +41,7 @@ type errorResponse struct {
 }
 
 var (
+	log          *zap.Logger
 	db           *sql.DB
 	customerRepo *repository.CustomerRepository
 	jwtSecret    []byte
@@ -47,11 +49,12 @@ var (
 )
 
 func init() {
+	log = logging.New()
 	ctx := context.Background()
 
 	secret, err := secrets.Load(ctx, mustEnv("APP_SECRET_ID"))
 	if err != nil {
-		log.Fatalf("failed to load app secret: %v", err)
+		log.Fatal("failed to load app secret", zap.Error(err))
 	}
 	jwtSecret = []byte(secret.JWTSecret)
 
@@ -64,44 +67,49 @@ func init() {
 
 	db, err = sql.Open("postgres", dsn)
 	if err != nil {
-		log.Fatalf("failed to open db connection: %v", err)
+		log.Fatal("failed to open db connection", zap.Error(err))
 	}
 	customerRepo = repository.NewCustomerRepository(db)
 
 	jwtExpiry, err = time.ParseDuration(envOrDefault("JWT_EXPIRES_IN", "24h"))
 	if err != nil {
-		log.Fatalf("invalid JWT_EXPIRES_IN: %v", err)
+		log.Fatal("invalid JWT_EXPIRES_IN", zap.Error(err))
 	}
 }
 
 func handler(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
 	var body loginRequest
 	if err := json.Unmarshal([]byte(req.Body), &body); err != nil || body.CPF == "" {
+		log.Warn("customer_login.validation_failed", zap.String("reason", "missing or malformed cpf"))
 		return jsonResponse(400, errorResponse{Code: 400, Errors: []string{"cpf is required"}})
 	}
 
+	// CPF is PII — never logged, per the app's redaction convention. Only
+	// non-sensitive derived values (user_id, roles) appear in log fields.
 	userID, err := customerRepo.UserIDByCPF(ctx, body.CPF)
 	if errors.Is(err, repository.ErrCustomerNotFound) {
+		log.Info("customer_login.not_found")
 		return jsonResponse(404, errorResponse{Code: 404, Errors: []string{"customer not found"}})
 	}
 	if err != nil {
-		log.Printf("UserIDByCPF error: %v", err)
+		log.Error("customer_login.lookup_failed", zap.Error(err))
 		return jsonResponse(500, errorResponse{Code: 500, Errors: []string{"internal error"}})
 	}
 
 	roles, err := customerRepo.RolesByUserID(ctx, userID)
 	if err != nil {
-		log.Printf("RolesByUserID error: %v", err)
+		log.Error("customer_login.roles_lookup_failed", zap.String("user_id", userID), zap.Error(err))
 		return jsonResponse(500, errorResponse{Code: 500, Errors: []string{"internal error"}})
 	}
 
 	expiresAt := time.Now().Add(jwtExpiry)
 	token, err := authtoken.GenerateToken(jwtSecret, userID, roles, expiresAt)
 	if err != nil {
-		log.Printf("GenerateToken error: %v", err)
+		log.Error("customer_login.token_generation_failed", zap.String("user_id", userID), zap.Error(err))
 		return jsonResponse(500, errorResponse{Code: 500, Errors: []string{"internal error"}})
 	}
 
+	log.Info("customer_login.token_issued", zap.String("user_id", userID), zap.Strings("roles", roles))
 	return jsonResponse(200, loginResponse{Token: token, ExpiresIn: int64(jwtExpiry.Seconds())})
 }
 
@@ -121,7 +129,7 @@ func jsonResponse(status int, body any) (events.APIGatewayV2HTTPResponse, error)
 func mustEnv(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
-		log.Fatalf("missing required env var %s", key)
+		log.Fatal("missing required env var", zap.String("key", key))
 	}
 	return v
 }
@@ -134,5 +142,6 @@ func envOrDefault(key, def string) string {
 }
 
 func main() {
+	defer log.Sync() //nolint:errcheck
 	lambda.Start(handler)
 }

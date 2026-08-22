@@ -9,6 +9,7 @@ import (
 )
 
 func TestUserIDByCPF_Found(t *testing.T) {
+	// Arrange
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -18,9 +19,12 @@ func TestUserIDByCPF_Found(t *testing.T) {
 	mock.ExpectQuery(`SELECT c.user_id FROM customer c WHERE c.cpf = \$1`).
 		WithArgs("52998224725").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("user-abc"))
-
 	repo := NewCustomerRepository(db)
+
+	// Act
 	userID, err := repo.UserIDByCPF(context.Background(), "52998224725")
+
+	// Assert
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -30,6 +34,7 @@ func TestUserIDByCPF_Found(t *testing.T) {
 }
 
 func TestUserIDByCPF_NotFound(t *testing.T) {
+	// Arrange
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -39,15 +44,19 @@ func TestUserIDByCPF_NotFound(t *testing.T) {
 	mock.ExpectQuery(`SELECT c.user_id FROM customer c WHERE c.cpf = \$1`).
 		WithArgs("00000000000").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
-
 	repo := NewCustomerRepository(db)
+
+	// Act
 	_, err = repo.UserIDByCPF(context.Background(), "00000000000")
+
+	// Assert
 	if !errors.Is(err, ErrCustomerNotFound) {
 		t.Errorf("err = %v, want ErrCustomerNotFound", err)
 	}
 }
 
 func TestRolesByUserID(t *testing.T) {
+	// Arrange
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -57,9 +66,12 @@ func TestRolesByUserID(t *testing.T) {
 	mock.ExpectQuery(`SELECT r.name FROM user_role ur JOIN role r ON r.id = ur.role_id WHERE ur.user_id = \$1`).
 		WithArgs("user-abc").
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("CUSTOMER"))
-
 	repo := NewCustomerRepository(db)
+
+	// Act
 	roles, err := repo.RolesByUserID(context.Background(), "user-abc")
+
+	// Assert
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

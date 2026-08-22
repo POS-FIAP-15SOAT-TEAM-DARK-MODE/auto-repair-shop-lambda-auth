@@ -49,6 +49,7 @@ middleware accepts it unmodified, no changes needed on that side.
 - Go (`provided.al2023` custom runtime, `arm64`), `github.com/aws/aws-lambda-go`
 - `github.com/golang-jwt/jwt/v5` — same library/version as the main app
 - `github.com/lib/pq` — same Postgres driver as the main app
+- `go.uber.org/zap` — structured JSON logging, same convention as the main app (see `.ai/rules/observability.md` there); CPF is never logged, only derived non-PII fields (`user_id`, `roles`)
 - Terraform (>= 1.10), AWS provider (~> 6.0)
 - AWS: Lambda, Secrets Manager (read-only), VPC (private subnets, for the
   Postgres connection), CloudWatch Logs
@@ -110,6 +111,17 @@ creating a dedicated IAM role/policy.
 ```bash
 go test ./...
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o build/bootstrap ./cmd/lambda
+```
+
+Ported the applicable conventions from the main app's `.ai/rules/` (Go
+idioms, testing structure, structured logging, Conventional Commits,
+pre-commit hooks) — see `.pre-commit-config.yaml`. Skipped what's monolith-
+specific (layered architecture/UoW, RBAC endpoint table, migrations) since
+this is a single-purpose function, not a layered app. Install the hooks with:
+
+```bash
+pip install pre-commit  # or: brew install pre-commit
+pre-commit install
 ```
 
 No local Postgres path — this lambda only ever talks to the shared RDS

@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.34.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/lib/pq v1.11.2
+	go.uber.org/zap v1.27.1
 )
 
 require (
@@ -24,4 +25,5 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.28.10 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.9 // indirect
 	github.com/aws/smithy-go v1.22.1 // indirect
+	go.uber.org/multierr v1.10.0 // indirect
 )
