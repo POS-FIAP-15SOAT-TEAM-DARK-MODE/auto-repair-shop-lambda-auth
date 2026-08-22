@@ -2,18 +2,16 @@
 
 Serverless (AWS Lambda) function that issues JWTs for customer logins in the
 [auto-repair-shop](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop)
-app. Split into its own repository per the Fase 3 (Tech Challenge)
-requirement for 4 independent repositories with their own CI/CD — this is
-repo 1 of 4 ("Lambda / Function Serverless").
+app. Split into its own repository as part of a move to independently
+deployable services, each with its own CI/CD.
 
 ## Scope
 
-The original brief asked for CPF validation + a customer existence/status
-check + token issuance. Per guidance from the course during the Fase 3
-kickoff live (confirmed with the professor — see
+The original design for this lambda called for CPF validation, a customer
+existence/status check, and token issuance. After scoping the work (see
 [infra-k8s issue #4](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-infra-k8s/issues/4)),
-only one of the three is required to satisfy the grading criteria, and the
-team chose **token issuance**. This lambda still does a minimal Postgres
+the team narrowed it down to **token issuance** as the piece that actually
+matters for this project right now. This lambda still does a minimal Postgres
 lookup (CPF → `user_id` → roles) rather than skipping the database
 entirely — not because it's required, but because the app's
 `accept`/`reject` service-order endpoints scope by
