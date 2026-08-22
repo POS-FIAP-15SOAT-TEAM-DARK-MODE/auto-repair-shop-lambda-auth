@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "terraform/**"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5
+        with:
+          go-version-file: go.mod
+
+      - name: fmt check
+        run: |
+          diff -u <(echo -n) <(gofmt -l .)
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./... -race -cover
+
+      - name: cross-compile (arm64, matches Lambda architecture)
+        run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/bootstrap ./cmd/lambda
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_wrapper: false
+      - name: fmt & validate
+        run: |
+          # validate evaluates filebase64sha256(var.lambda_zip_path), which needs
+          # a real file to exist at that path even though no real build runs here.
+          mkdir -p build && touch build/lambda.zip
+          terraform fmt -check -recursive terraform
+          terraform -chdir=terraform init -backend=false -input=false
+          terraform -chdir=terraform validate

@@ -1,0 +1,12 @@
+/build/
+bootstrap
+*.zip
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+terraform/terraform.tfvars
+
+.DS_Store

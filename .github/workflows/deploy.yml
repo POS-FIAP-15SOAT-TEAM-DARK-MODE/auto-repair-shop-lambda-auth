@@ -1,0 +1,121 @@
+name: Deploy (Terraform)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Workspace
+        type: choice
+        options: [stg, prd]
+        default: stg
+      action:
+        description: plan, apply or destroy
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: inputs.action != 'destroy'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build (arm64, matches provided.al2023 lambda architecture)
+        run: |
+          mkdir -p build
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o build/bootstrap ./cmd/lambda
+          cd build && zip lambda.zip bootstrap
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa9 # v4
+        with:
+          name: lambda-zip
+          path: build/lambda.zip
+          retention-days: 1
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: always() && (needs.build.result == 'success' || inputs.action == 'destroy')
+    environment: infra
+    env:
+      AWS_AUTH_MODE: ${{ vars.AWS_AUTH_MODE || (secrets.AWS_ACCESS_KEY_ID != '' && 'static' || 'oidc') }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download built package
+        if: inputs.action != 'destroy'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: lambda-zip
+          path: build
+
+      - name: Placeholder package (destroy doesn't need a real build)
+        if: inputs.action == 'destroy'
+        run: mkdir -p build && touch build/lambda.zip
+
+      - name: Configure AWS credentials (OIDC)
+        if: env.AWS_AUTH_MODE == 'oidc'
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials (static)
+        if: env.AWS_AUTH_MODE == 'static'
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_wrapper: false
+
+      - name: Resolve state bucket and mode
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          CALLER=$(aws sts get-caller-identity --query Arn --output text)
+          MANAGE_IAM="${{ vars.MANAGE_IAM }}"
+          EXEC_ROLE="${{ vars.EXECUTION_ROLE_ARN }}"
+          if [ -z "$MANAGE_IAM" ]; then
+            echo "$CALLER" | grep -qiE 'voclabs|labrole' && MANAGE_IAM=false || MANAGE_IAM=true
+          fi
+          if [ -z "$EXEC_ROLE" ] && [ "$MANAGE_IAM" = "false" ]; then
+            EXEC_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/LabRole"
+          fi
+          {
+            echo "STATE_BUCKET=auto-repair-shop-tfstate-${ACCOUNT_ID}"
+            echo "MANAGE_IAM=$MANAGE_IAM"
+            echo "EXECUTION_ROLE_ARN=$EXEC_ROLE"
+          } >> "$GITHUB_ENV"
+
+      - name: Terraform ${{ inputs.action }} (${{ inputs.environment }})
+        working-directory: terraform
+        run: |
+          terraform init -backend-config="bucket=$STATE_BUCKET"
+          terraform workspace select "${{ inputs.environment }}" 2>/dev/null \
+            || terraform workspace new "${{ inputs.environment }}"
+          terraform ${{ inputs.action }} ${{ (inputs.action == 'apply' || inputs.action == 'destroy') && '-auto-approve' || '' }} \
+            -var "state_bucket=$STATE_BUCKET" \
+            -var "manage_iam=$MANAGE_IAM" \
+            -var "execution_role_arn=$EXECUTION_ROLE_ARN" \
+            -var "lambda_zip_path=../build/lambda.zip"
+
+      - name: Show outputs
+        if: inputs.action == 'apply'
+        working-directory: terraform
+        run: terraform output
