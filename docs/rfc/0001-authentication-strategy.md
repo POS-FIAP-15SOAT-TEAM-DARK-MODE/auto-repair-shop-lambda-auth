@@ -3,11 +3,11 @@
 - Status: Resolved (see Decision)
 - Date: 2026-08-22
 - Author: Giusier F.
-- Related: Fase 3 issue #4, ADR 0002 (this repo)
+- Related: issue #4, ADR 0002 (this repo)
 
 ## Summary
 
-The Tech Challenge brief calls for a serverless function handling customer authentication via CPF, reusing the app's existing JWT/RBAC scheme. This RFC covers the three questions issue #4 flags as open: **runtime**, **Postgres access pattern**, and **JWT secret reuse strategy** — plus the scope question that emerged once the professor narrowed the grading requirement mid-project.
+The plan calls for a serverless function handling customer authentication via CPF, reusing the app's existing JWT/RBAC scheme. This RFC covers the three questions issue #4 flags as open: **runtime**, **Postgres access pattern**, and **JWT secret reuse strategy** — plus the scope question that emerged once the team narrowed the requirement mid-project.
 
 ## Problem statement
 
@@ -21,7 +21,7 @@ We need a Lambda that, given a customer's CPF, returns a JWT the main app's exis
 
 **Runtime: Go, `provided.al2023` custom runtime, `arm64`.** Chosen specifically so the JWT-signing logic (claim shape, HS256, `golang-jwt/jwt/v5`) can be *ported* line-for-line from the app's own `internal/pkg/auth/jwt.go`, rather than reimplemented in a second language where the claim shape or signing details could drift from the source of truth over time.
 
-**Postgres access: a minimal read, not the full validate+status flow.** `SELECT user_id FROM customer WHERE cpf = $1`, then a roles lookup — see ADR 0002 in this repo for the full reasoning (professor-confirmed reduced scope vs. the `accept`/`reject` ownership-check dependency that forced keeping *some* DB access rather than none).
+**Postgres access: a minimal read, not the full validate+status flow.** `SELECT user_id FROM customer WHERE cpf = $1`, then a roles lookup — see ADR 0002 in this repo for the full reasoning (agreed-upon reduced scope vs. the `accept`/`reject` ownership-check dependency that forced keeping *some* DB access rather than none).
 
 **JWT secret reuse: read from the same Secrets Manager entry `auto-repair-shop-infra-db` already creates** (`auto-repair-shop-<env>/app`, containing both `POSTGRES_PASSWORD` and `JWT_SECRET`), fetched at cold start via the AWS SDK rather than duplicated into a second secret or baked into a Terraform-managed environment variable (which would put the plaintext secret into Terraform state a second time, in a second repo).
 
@@ -51,7 +51,7 @@ We need a Lambda that, given a customer's CPF, returns a JWT the main app's exis
 
 ## Open questions / risks
 
-- CPF format/checksum validation is not implemented (see ADR 0002) — anyone submitting a syntactically-invalid CPF just gets a clean 404 from the "customer not found" path rather than a more specific 400. Acceptable for the current scope; worth adding if the full three-part brief requirement is ever picked back up.
+- CPF format/checksum validation is not implemented (see ADR 0002) — anyone submitting a syntactically-invalid CPF just gets a clean 404 from the "customer not found" path rather than a more specific 400. Acceptable for the current scope; worth adding if the full three-part design is ever picked back up.
 - No rate limiting inside the lambda itself — relies entirely on the API Gateway's throttle (`auto-repair-shop-infra-k8s` ADR 0002) once traffic goes through the Gateway. The lambda's own Function URL, kept for direct testing, has no such protection if someone discovers and hits it directly instead of going through the Gateway.
 
 ## Decision
