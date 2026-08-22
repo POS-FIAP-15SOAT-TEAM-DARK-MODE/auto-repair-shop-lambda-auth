@@ -79,8 +79,11 @@ workspace (this repo reads both via `terraform_remote_state`).
 
 **Prerequisites:**
 1. `auto-repair-shop-infra-k8s`: `bootstrap` + `shared` + `aws` states applied.
-2. `auto-repair-shop-infra-db`: applied (this repo reads its `db_host` and
-   `app_secret_arn` outputs).
+2. `auto-repair-shop-infra-db`: applied (this repo reads its `db_host`,
+   `app_secret_arn`, and `lambda_access_security_group_id` outputs — the
+   last of these is the security group this lambda's function attaches to
+   for RDS access; owned in `infra-db`, not here, to avoid a circular
+   cross-repo dependency between the two states).
 3. Add the same repository secrets used by the sibling infra repos
    (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for
    Learner Lab; or wire up the `infra` GitHub Environment's
@@ -89,13 +92,8 @@ workspace (this repo reads both via `terraform_remote_state`).
 **Deploy:** Actions tab → **"Deploy (Terraform)"** → Run workflow →
 `environment=stg`, `action=plan` first, then `action=apply`. The `build` job
 cross-compiles the Go binary for `linux/arm64`, zips it, and hands it to the
-`deploy` job's `terraform apply`.
-
-After `apply`, one extra manual step until issue #5 (API Gateway) lands: add
-this run's `security_group_id` output as a new ingress rule on
-`auto-repair-shop-infra-db`'s RDS security group (5432, from this lambda's
-SG). This repo intentionally does not modify `infra-db`'s Terraform itself —
-see that repo's `rds.tf` for the ingress rule.
+`deploy` job's `terraform apply`. No manual security-group wiring needed —
+RDS access is resolved automatically via `infra-db`'s remote state.
 
 PRs touching `**.go` or `terraform/**` get automatic `go test`/`vet`/build +
 `terraform fmt`/`validate` (no credentials required).

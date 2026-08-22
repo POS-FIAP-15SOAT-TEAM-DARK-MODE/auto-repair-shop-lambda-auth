@@ -9,21 +9,6 @@ locals {
   }
 }
 
-resource "aws_security_group" "lambda" {
-  name_prefix = "${local.name}-"
-  description = "customer-login lambda: egress-only, RDS SG grants this SG ingress on 5432"
-  vpc_id      = data.terraform_remote_state.network.outputs.vpc_id
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = local.tags
-}
-
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${local.name}"
   retention_in_days = 14
@@ -93,8 +78,10 @@ resource "aws_lambda_function" "customer_login" {
   memory_size = 128
 
   vpc_config {
-    subnet_ids         = data.terraform_remote_state.network.outputs.private_subnets
-    security_group_ids = [aws_security_group.lambda.id]
+    subnet_ids = data.terraform_remote_state.network.outputs.private_subnets
+    # Owned by auto-repair-shop-infra-db, not created here, to avoid a
+    # circular cross-repo dependency (see that repo's lambda_access.tf).
+    security_group_ids = [data.terraform_remote_state.db.outputs.lambda_access_security_group_id]
   }
 
   environment {

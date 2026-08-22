@@ -15,8 +15,3 @@ output "invoke_url" {
   description = "Direct HTTPS URL for testing ahead of the API Gateway integration. POST { \"cpf\": \"...\" } here."
   value       = aws_lambda_function_url.customer_login.function_url
 }
-
-output "security_group_id" {
-  description = "Consumed by auto-repair-shop-infra-db to add an RDS ingress rule allowing this lambda in on 5432."
-  value       = aws_security_group.lambda.id
-}
