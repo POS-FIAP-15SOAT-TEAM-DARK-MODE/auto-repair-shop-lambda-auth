@@ -25,8 +25,9 @@ column on `customer` in the schema today).
 ## Request / response
 
 ```
-POST /   (via the lambda's Function URL, or the API Gateway route in
-          auto-repair-shop-infra-k8s once issue #5 lands)
+POST /auth/customer-login   (via the API Gateway in auto-repair-shop-infra-k8s;
+                              also reachable directly on the lambda's own
+                              Function URL — see "Testing an apply" below)
 Content-Type: application/json
 
 { "cpf": "52998224725" }
@@ -139,12 +140,18 @@ curl -X POST "$INVOKE_URL" -H "Content-Type: application/json" \
   -d '{"cpf":"52998224725"}'
 ```
 
+## Swagger / Postman
+
+OpenAPI spec for this lambda's one route: [`docs/openapi.yaml`](docs/openapi.yaml).
+No separate Postman collection — the spec is small enough that the `curl`
+example under "Testing an apply" below covers the same ground.
+
 ## Architecture
 
 ```mermaid
 flowchart TB
     client([HTTP client])
-    gw["API Gateway<br/>(auto-repair-shop-infra-k8s, issue #5)"]
+    gw["API Gateway<br/>(auto-repair-shop-infra-k8s, terraform/gateway)"]
 
     subgraph aws["AWS account"]
         subgraph vpc["VPC (from auto-repair-shop-infra-k8s)"]
@@ -157,14 +164,14 @@ flowchart TB
         sm["Secrets Manager<br/>JWT_SECRET · POSTGRES_PASSWORD<br/>(created by infra-db)"]
     end
 
-    client -->|"today: Function URL<br/>soon: via API Gateway"| lambda
-    client -.->|"future"| gw
-    gw -.->|"future: Lambda proxy integration"| lambda
+    client -->|"POST /auth/customer-login"| gw
+    client -.->|"direct, bypasses the gateway"| lambda
+    gw -->|"AWS_PROXY integration"| lambda
     lambda -->|"GetSecretValue"| sm
 ```
 
 ## Related repositories
 
 - [auto-repair-shop](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop) — the application whose auth middleware accepts tokens issued here
-- [auto-repair-shop-infra-k8s](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-infra-k8s) — VPC/EKS this lambda's network config is read from; also where the API Gateway (issue #5) will route to this lambda
+- [auto-repair-shop-infra-k8s](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-infra-k8s) — VPC/EKS this lambda's network config is read from; its `gateway` state routes `POST /auth/customer-login` to this lambda
 - [auto-repair-shop-infra-db](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-infra-db) — RDS instance and the app secret this lambda reads from
