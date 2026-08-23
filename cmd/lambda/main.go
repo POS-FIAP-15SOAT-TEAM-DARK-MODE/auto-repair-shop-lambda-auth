@@ -41,6 +41,8 @@ type errorResponse struct {
 	Errors []string `json:"errors"`
 }
 
+const internalErrorMsg = "internal error"
+
 var (
 	log          *zap.Logger
 	db           *sql.DB
@@ -97,20 +99,20 @@ func handler(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.AP
 	}
 	if err != nil {
 		reqLog.Error("customer_login.lookup_failed", zap.Error(err))
-		return jsonResponse(500, reqID, errorResponse{Code: 500, Errors: []string{"internal error"}})
+		return jsonResponse(500, reqID, errorResponse{Code: 500, Errors: []string{internalErrorMsg}})
 	}
 
 	roles, err := customerRepo.RolesByUserID(ctx, userID)
 	if err != nil {
 		reqLog.Error("customer_login.roles_lookup_failed", zap.String("user_id", userID), zap.Error(err))
-		return jsonResponse(500, reqID, errorResponse{Code: 500, Errors: []string{"internal error"}})
+		return jsonResponse(500, reqID, errorResponse{Code: 500, Errors: []string{internalErrorMsg}})
 	}
 
 	expiresAt := time.Now().Add(jwtExpiry)
 	token, err := authtoken.GenerateToken(jwtSecret, userID, roles, expiresAt)
 	if err != nil {
 		reqLog.Error("customer_login.token_generation_failed", zap.String("user_id", userID), zap.Error(err))
-		return jsonResponse(500, reqID, errorResponse{Code: 500, Errors: []string{"internal error"}})
+		return jsonResponse(500, reqID, errorResponse{Code: 500, Errors: []string{internalErrorMsg}})
 	}
 
 	reqLog.Info("customer_login.token_issued", zap.String("user_id", userID), zap.Strings("roles", roles))
