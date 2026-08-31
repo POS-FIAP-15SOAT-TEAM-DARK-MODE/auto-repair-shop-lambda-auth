@@ -2,18 +2,16 @@
 
 Serverless (AWS Lambda) function that issues JWTs for customer logins in the
 [auto-repair-shop](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop)
-app. Split into its own repository per the Fase 3 (Tech Challenge)
-requirement for 4 independent repositories with their own CI/CD — this is
-repo 1 of 4 ("Lambda / Function Serverless").
+app. Split into its own repository as part of a move to independently
+deployable services, each with its own CI/CD.
 
 ## Scope
 
-The original brief asked for CPF validation + a customer existence/status
-check + token issuance. Per guidance from the course during the Fase 3
-kickoff live (confirmed with the professor — see
+The original design for this lambda called for CPF validation, a customer
+existence/status check, and token issuance. After scoping the work (see
 [infra-k8s issue #4](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-infra-k8s/issues/4)),
-only one of the three is required to satisfy the grading criteria, and the
-team chose **token issuance**. This lambda still does a minimal Postgres
+the team narrowed it down to **token issuance** as the piece that actually
+matters for this project right now. This lambda still does a minimal Postgres
 lookup (CPF → `user_id` → roles) rather than skipping the database
 entirely — not because it's required, but because the app's
 `accept`/`reject` service-order endpoints scope by
@@ -25,8 +23,9 @@ column on `customer` in the schema today).
 ## Request / response
 
 ```
-POST /   (via the lambda's Function URL, or the API Gateway route in
-          auto-repair-shop-infra-k8s once issue #5 lands)
+POST /auth/customer-login   (via the API Gateway in auto-repair-shop-infra-k8s;
+                              also reachable directly on the lambda's own
+                              Function URL — see "Testing an apply" below)
 Content-Type: application/json
 
 { "cpf": "52998224725" }
@@ -79,8 +78,11 @@ workspace (this repo reads both via `terraform_remote_state`).
 
 **Prerequisites:**
 1. `auto-repair-shop-infra-k8s`: `bootstrap` + `shared` + `aws` states applied.
-2. `auto-repair-shop-infra-db`: applied (this repo reads its `db_host` and
-   `app_secret_arn` outputs).
+2. `auto-repair-shop-infra-db`: applied (this repo reads its `db_host`,
+   `app_secret_arn`, and `lambda_access_security_group_id` outputs — the
+   last of these is the security group this lambda's function attaches to
+   for RDS access; owned in `infra-db`, not here, to avoid a circular
+   cross-repo dependency between the two states).
 3. Add the same repository secrets used by the sibling infra repos
    (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for
    Learner Lab; or wire up the `infra` GitHub Environment's
@@ -89,13 +91,8 @@ workspace (this repo reads both via `terraform_remote_state`).
 **Deploy:** Actions tab → **"Deploy (Terraform)"** → Run workflow →
 `environment=stg`, `action=plan` first, then `action=apply`. The `build` job
 cross-compiles the Go binary for `linux/arm64`, zips it, and hands it to the
-`deploy` job's `terraform apply`.
-
-After `apply`, one extra manual step until issue #5 (API Gateway) lands: add
-this run's `security_group_id` output as a new ingress rule on
-`auto-repair-shop-infra-db`'s RDS security group (5432, from this lambda's
-SG). This repo intentionally does not modify `infra-db`'s Terraform itself —
-see that repo's `rds.tf` for the ingress rule.
+`deploy` job's `terraform apply`. No manual security-group wiring needed —
+RDS access is resolved automatically via `infra-db`'s remote state.
 
 PRs touching `**.go` or `terraform/**` get automatic `go test`/`vet`/build +
 `terraform fmt`/`validate` (no credentials required).
@@ -141,12 +138,18 @@ curl -X POST "$INVOKE_URL" -H "Content-Type: application/json" \
   -d '{"cpf":"52998224725"}'
 ```
 
+## Swagger / Postman
+
+OpenAPI spec for this lambda's one route: [`docs/openapi.yaml`](docs/openapi.yaml).
+No separate Postman collection — the spec is small enough that the `curl`
+example under "Testing an apply" below covers the same ground.
+
 ## Architecture
 
 ```mermaid
 flowchart TB
     client([HTTP client])
-    gw["API Gateway<br/>(auto-repair-shop-infra-k8s, issue #5)"]
+    gw["API Gateway<br/>(auto-repair-shop-infra-k8s, terraform/gateway)"]
 
     subgraph aws["AWS account"]
         subgraph vpc["VPC (from auto-repair-shop-infra-k8s)"]
@@ -159,14 +162,14 @@ flowchart TB
         sm["Secrets Manager<br/>JWT_SECRET · POSTGRES_PASSWORD<br/>(created by infra-db)"]
     end
 
-    client -->|"today: Function URL<br/>soon: via API Gateway"| lambda
-    client -.->|"future"| gw
-    gw -.->|"future: Lambda proxy integration"| lambda
+    client -->|"POST /auth/customer-login"| gw
+    client -.->|"direct, bypasses the gateway"| lambda
+    gw -->|"AWS_PROXY integration"| lambda
     lambda -->|"GetSecretValue"| sm
 ```
 
 ## Related repositories
 
 - [auto-repair-shop](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop) — the application whose auth middleware accepts tokens issued here
-- [auto-repair-shop-infra-k8s](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-infra-k8s) — VPC/EKS this lambda's network config is read from; also where the API Gateway (issue #5) will route to this lambda
+- [auto-repair-shop-infra-k8s](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-infra-k8s) — VPC/EKS this lambda's network config is read from; its `gateway` state routes `POST /auth/customer-login` to this lambda
 - [auto-repair-shop-infra-db](https://github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-infra-db) — RDS instance and the app secret this lambda reads from
