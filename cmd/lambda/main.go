@@ -23,6 +23,7 @@ import (
 	"github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-lambda-auth/internal/authtoken"
 	"github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-lambda-auth/internal/logging"
 	"github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-lambda-auth/internal/repository"
+	"github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-lambda-auth/internal/requestid"
 	"github.com/POS-FIAP-15SOAT-TEAM-DARK-MODE/auto-repair-shop-lambda-auth/internal/secrets"
 )
 
@@ -39,6 +40,8 @@ type errorResponse struct {
 	Code   int      `json:"code"`
 	Errors []string `json:"errors"`
 }
+
+const internalErrorMsg = "internal error"
 
 var (
 	log          *zap.Logger
@@ -78,42 +81,45 @@ func init() {
 }
 
 func handler(ctx context.Context, req events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
+	reqID := requestid.From(req.Headers, req.RequestContext.RequestID)
+	reqLog := log.With(zap.String("request_id", reqID))
+
 	var body loginRequest
 	if err := json.Unmarshal([]byte(req.Body), &body); err != nil || body.CPF == "" {
-		log.Warn("customer_login.validation_failed", zap.String("reason", "missing or malformed cpf"))
-		return jsonResponse(400, errorResponse{Code: 400, Errors: []string{"cpf is required"}})
+		reqLog.Warn("customer_login.validation_failed", zap.String("reason", "missing or malformed cpf"))
+		return jsonResponse(400, reqID, errorResponse{Code: 400, Errors: []string{"cpf is required"}})
 	}
 
 	// CPF is PII — never logged, per the app's redaction convention. Only
 	// non-sensitive derived values (user_id, roles) appear in log fields.
 	userID, err := customerRepo.UserIDByCPF(ctx, body.CPF)
 	if errors.Is(err, repository.ErrCustomerNotFound) {
-		log.Info("customer_login.not_found")
-		return jsonResponse(404, errorResponse{Code: 404, Errors: []string{"customer not found"}})
+		reqLog.Info("customer_login.not_found")
+		return jsonResponse(404, reqID, errorResponse{Code: 404, Errors: []string{"customer not found"}})
 	}
 	if err != nil {
-		log.Error("customer_login.lookup_failed", zap.Error(err))
-		return jsonResponse(500, errorResponse{Code: 500, Errors: []string{"internal error"}})
+		reqLog.Error("customer_login.lookup_failed", zap.Error(err))
+		return jsonResponse(500, reqID, errorResponse{Code: 500, Errors: []string{internalErrorMsg}})
 	}
 
 	roles, err := customerRepo.RolesByUserID(ctx, userID)
 	if err != nil {
-		log.Error("customer_login.roles_lookup_failed", zap.String("user_id", userID), zap.Error(err))
-		return jsonResponse(500, errorResponse{Code: 500, Errors: []string{"internal error"}})
+		reqLog.Error("customer_login.roles_lookup_failed", zap.String("user_id", userID), zap.Error(err))
+		return jsonResponse(500, reqID, errorResponse{Code: 500, Errors: []string{internalErrorMsg}})
 	}
 
 	expiresAt := time.Now().Add(jwtExpiry)
 	token, err := authtoken.GenerateToken(jwtSecret, userID, roles, expiresAt)
 	if err != nil {
-		log.Error("customer_login.token_generation_failed", zap.String("user_id", userID), zap.Error(err))
-		return jsonResponse(500, errorResponse{Code: 500, Errors: []string{"internal error"}})
+		reqLog.Error("customer_login.token_generation_failed", zap.String("user_id", userID), zap.Error(err))
+		return jsonResponse(500, reqID, errorResponse{Code: 500, Errors: []string{internalErrorMsg}})
 	}
 
-	log.Info("customer_login.token_issued", zap.String("user_id", userID), zap.Strings("roles", roles))
-	return jsonResponse(200, loginResponse{Token: token, ExpiresIn: int64(jwtExpiry.Seconds())})
+	reqLog.Info("customer_login.token_issued", zap.String("user_id", userID), zap.Strings("roles", roles))
+	return jsonResponse(200, reqID, loginResponse{Token: token, ExpiresIn: int64(jwtExpiry.Seconds())})
 }
 
-func jsonResponse(status int, body any) (events.APIGatewayV2HTTPResponse, error) {
+func jsonResponse(status int, reqID string, body any) (events.APIGatewayV2HTTPResponse, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return events.APIGatewayV2HTTPResponse{}, err
@@ -121,8 +127,11 @@ func jsonResponse(status int, body any) (events.APIGatewayV2HTTPResponse, error)
 
 	return events.APIGatewayV2HTTPResponse{
 		StatusCode: status,
-		Headers:    map[string]string{"Content-Type": "application/json"},
-		Body:       string(b),
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+			"X-Request-Id": reqID,
+		},
+		Body: string(b),
 	}, nil
 }
 
