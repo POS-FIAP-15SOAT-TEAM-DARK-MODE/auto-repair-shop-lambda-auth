@@ -142,7 +142,7 @@ curl -X POST "$INVOKE_URL" -H "Content-Type: application/json" \
 
 OpenAPI spec for this lambda's one route: [`docs/openapi.yaml`](docs/openapi.yaml).
 No separate Postman collection — the spec is small enough that the `curl`
-example under "Testing an apply" below covers the same ground.
+example under "Testing an apply" above covers the same ground.
 
 ## Architecture
 
