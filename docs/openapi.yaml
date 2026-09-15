@@ -1,0 +1,119 @@
+openapi: 3.0.0
+info:
+  title: auto-repair-shop-lambda-auth
+  version: "1.0.0"
+  description: >
+    Customer-login lambda. Given a CPF, resolves it against the shared
+    auto-repair-shop database and issues a JWT compatible with the main
+    app's own auth middleware. See the repo README's "Scope" section for
+    what this endpoint deliberately does not do (no CPF format validation,
+    no customer status check).
+servers:
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com/{stage}
+    description: Via the API Gateway in auto-repair-shop-infra-k8s
+    variables:
+      apiId:
+        default: xxxxxxxxxx
+      region:
+        default: us-east-1
+      stage:
+        default: stg
+  - url: "{functionUrl}"
+    description: Direct Lambda Function URL (bypasses the gateway)
+    variables:
+      functionUrl:
+        default: https://xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.lambda-url.us-east-1.on.aws/
+security: []
+paths:
+  /auth/customer-login:
+    post:
+      summary: Log in a customer by CPF
+      description: >
+        Resolves the given CPF to a customer's user_id and roles, then
+        issues a JWT with that claim shape. No password. Existence in the
+        customer table is the only check performed.
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerLoginRequest"
+            example:
+              cpf: "52998224725"
+      responses:
+        "200":
+          description: Login successful, token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerLoginResponse"
+              example:
+                token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                expires_in: 86400
+        "400":
+          description: Missing or empty cpf field
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: 400
+                errors:
+                  - cpf is required
+        "404":
+          description: No customer found for the given CPF
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: 404
+                errors:
+                  - customer not found
+        "500":
+          description: Internal error (DB, secret loading, or token signing)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: 500
+                errors:
+                  - internal error
+
+components:
+  schemas:
+    CustomerLoginRequest:
+      type: object
+      required:
+        - cpf
+      properties:
+        cpf:
+          type: string
+          description: Customer CPF, digits only, no formatting applied on the server side
+          example: "52998224725"
+
+    CustomerLoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: >
+            HS256 JWT, same claim shape and secret as the main app's own
+            login endpoint (user_id, roles). Accepted unmodified by the
+            app's auth middleware.
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
