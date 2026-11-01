@@ -79,10 +79,12 @@ workspace (this repo reads both via `terraform_remote_state`).
 **Prerequisites:**
 1. `auto-repair-shop-infra-k8s`: `bootstrap` + `shared` + `aws` states applied.
 2. `auto-repair-shop-infra-db`: applied (this repo reads its `db_host`,
-   `app_secret_arn`, and `lambda_access_security_group_id` outputs — the
+   `lambda_secret_arn`, and `lambda_access_security_group_id` outputs — the
    last of these is the security group this lambda's function attaches to
    for RDS access; owned in `infra-db`, not here, to avoid a circular
-   cross-repo dependency between the two states).
+   cross-repo dependency between the two states). `lambda_secret_arn` is a
+   new output of `infra-db` (PR #9); the lambda's `plan` fails to read it
+   until that change is merged and applied.
 3. Add the same repository secrets used by the sibling infra repos
    (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` for
    Learner Lab; or wire up the `infra` GitHub Environment's
@@ -102,6 +104,13 @@ PRs touching `**.go` or `terraform/**` get automatic `go test`/`vet`/build +
 Same auto-detected degraded mode as the sibling infra repos:
 `manage_iam=false` reuses `LabRole` as the lambda's execution role instead of
 creating a dedicated IAM role/policy.
+
+## Banco de dados
+
+A lambda lê o database `customer` do RDS como o usuário `lambda_auth_ro`,
+que tem acesso somente leitura a `customer`, `user_role` e `role`. A senha
+vem do segredo `lambda_secret_arn` (chaves `POSTGRES_PASSWORD` e
+`JWT_SECRET`). O CPF é armazenado somente com dígitos.
 
 ## Local development
 
