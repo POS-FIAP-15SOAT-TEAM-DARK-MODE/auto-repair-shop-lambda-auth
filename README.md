@@ -112,6 +112,10 @@ que tem acesso somente leitura a `customer`, `user_role` e `role`. A senha
 vem do segredo `lambda_secret_arn` (chaves `POSTGRES_PASSWORD` e
 `JWT_SECRET`). O CPF é armazenado somente com dígitos.
 
+A conexão usa `sslmode=require` por padrão (o comportamento na AWS). A variável
+opcional `DB_SSLMODE` existe apenas para o ecossistema local, cujo Postgres não
+serve TLS (`DB_SSLMODE=disable`); não a defina no Lab/AWS.
+
 ## Local development
 
 ```bash
