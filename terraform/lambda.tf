@@ -48,7 +48,7 @@ data "aws_iam_policy_document" "lambda_secrets" {
 
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [data.terraform_remote_state.db.outputs.app_secret_arn]
+    resources = [data.terraform_remote_state.db.outputs.lambda_secret_arn]
   }
 }
 
@@ -88,9 +88,9 @@ resource "aws_lambda_function" "customer_login" {
     variables = {
       DB_HOST        = data.terraform_remote_state.db.outputs.db_host
       DB_PORT        = tostring(data.terraform_remote_state.db.outputs.db_port)
-      DB_USER        = "postgres"
-      DB_NAME        = "autorepairshop"
-      APP_SECRET_ID  = data.terraform_remote_state.db.outputs.app_secret_arn
+      DB_USER        = "lambda_auth_ro"
+      DB_NAME        = "customer"
+      APP_SECRET_ID  = data.terraform_remote_state.db.outputs.lambda_secret_arn
       JWT_EXPIRES_IN = var.jwt_expires_in
     }
   }

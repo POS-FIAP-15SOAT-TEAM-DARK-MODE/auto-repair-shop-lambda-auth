@@ -62,10 +62,13 @@ func init() {
 	jwtSecret = []byte(secret.JWTSecret)
 
 	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=require",
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		mustEnv("DB_HOST"), envOrDefault("DB_PORT", "5432"),
 		envOrDefault("DB_USER", "postgres"), secret.PostgresPassword,
 		envOrDefault("DB_NAME", "autorepairshop"),
+		// "require" is the AWS behaviour; only the local ecosystem (Postgres
+		// without TLS) overrides it with DB_SSLMODE=disable.
+		envOrDefault("DB_SSLMODE", "require"),
 	)
 
 	db, err = sql.Open("postgres", dsn)
